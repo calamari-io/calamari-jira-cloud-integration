@@ -3,7 +3,7 @@ import boto3
 
 import src.utils.settings as settings
 
-ses = boto3.client("ses", region='eu-west-1')
+ses = boto3.client("ses")
 
 
 def send_email(subject: str, message: str, addresses: list[str]):

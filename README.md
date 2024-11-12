@@ -1,6 +1,9 @@
 # Calamari - Jira integration
 This integration is syncing absences and timesheets between Jira and Calamari.
 
+## Disclaimer
+This repository is a fork of excelent work done in https://github.com/tenesys/calamari-jira-integration by https://tenesys.io/ team.
+
 ## How to build and run
 ```
 pip3 install -r requirements.txt -t build
