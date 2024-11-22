@@ -5,26 +5,34 @@ import src.utils.calamari as calamari
 import src.utils.jira as jira
 import src.utils.settings as settings
 from src.utils.date import get_month_range_yesterday
+from src.utils.date import get_dates_range
 
 
 def sync_absences():
     ignored_employees = settings.get("calamari_absence_ignored_employees").split(",")
-    absence_issue = settings.get("jira_absence_issue")
+    absence_issue_id = jira.get_jira_issue_id(settings.get("jira_absence_issue"))
     absence_worklogs = jira.fetch_absences()
+    workweeks = calamari.get_workweeks()
 
     conflicts = {}
     for employee in calamari.get_employees():
         employee_email = employee["email"]
-
+        employee_workweek_id = employee['workingWeek']['id']
+        
+        if not jira.user_exists(employee_email):
+                logging.warning("User %s does not exist in jira. Skipping.", employee_email)
+                continue
+        
         if employee_email in ignored_employees:
-            logging.debug("Ignoring absences of %s", employee_email)
+            logging.debug("Ignoring absences of %s - employee ignored by configuration", employee_email)
             if employee_email in absence_worklogs:
                 conflicts[employee_email] = absence_worklogs[employee_email]
             continue
-
+        workweek=calamari.get_workweek(workweeks, employee_workweek_id)
         employee_absences = calamari.filter_absences(
             employee_email,
-            calamari.get_approved_absences(employee_email)
+            calamari.get_approved_absences(employee_email),
+            workweek
         )
 
         if employee_absences == absence_worklogs[employee_email]:
@@ -37,76 +45,81 @@ def sync_absences():
                 logging.debug("Worklog for absence of %s exists on %s", employee_email, absence["date"])
                 absence_worklogs[employee_email].remove(absence)
                 continue
+            
 
             logging.info("Worklog for absence of %s is missing on %s (%s hours)", employee_email, absence["date"], absence["amount"])
             jira_account_id = jira.get_account_id(employee_email)
-            jira.create_absence_worklog(absence_issue, absence["amount"]*3600, absence["date"], jira_account_id)
+            jira.create_absence_worklog(absence_issue_id, absence["amount"]*3600, absence["date"], jira_account_id)
 
         if len(absence_worklogs[employee_email]) > 0:
             conflicts[employee_email] = absence_worklogs[employee_email]
-
-    msg = _prepare_conflicts_message(conflicts)
-    aws.send_email("Absence sync report", msg, settings.get("notification_emails").split(","))
-
-
-def _prepare_conflicts_message(conflicts: dict) -> str:
-    message = """
-    <html>
-    <head>
-        <style>
-            .g-table {
-            border: solid 3px #DDEEEE;
-            border-collapse: collapse;
-            border-spacing: 0;
-            font: normal 14px Roboto, sans-serif;
-            }
-
-            .g-table th {
-            background-color: #DDEFEF;
-            border: solid 1px #DDEEEE;
-            color: #336B5B;
-            min-width: 72px;
-            padding: 10px;
-            text-align: left;
-            text-shadow: 1px 1px 1px #fff;
-            }
-
-            .g-table td {
-            border: solid 1px #DDEEEE;
-            color: #333;
-            padding: 10px;
-            }
-        </style>
-    </head>
-    <body>
-    <h3>Absence worklog conflicts</h3>
-    """
-
     if len(conflicts) == 0:
-        message += "<p>No conflicts today!</p></body></html>"
-        return message
+        logging.info("No conflicts in worklogs detected. Well done!")
+    else:
+        logging.warning("Conflicting worklogs detected: %s",conflicts)
+    # msg = _prepare_conflicts_message(conflicts)
+    # print(msg)
+    #aws.send_email("Absence sync report", msg, settings.get("notification_emails").split(","))
 
-    message += """
-    <table class="g-table">
-    <tr>
-        <th>Employee</th>
-        <th>Date</th>
-        <th>Amount</th>
-    </tr>
-    """
 
-    for email, worklogs in conflicts.items():
-        for w in worklogs:
-            message += f"""
-            <tr>
-                <td>{email}</td>
-                <td>{w['date']}</td>
-                <td>{w['amount']}</td>
-            </tr>
-            """
+# def _prepare_conflicts_message(conflicts: dict) -> str:
+#     message = """
+#     <html>
+#     <head>
+#         <style>
+#             .g-table {
+#             border: solid 3px #DDEEEE;
+#             border-collapse: collapse;
+#             border-spacing: 0;
+#             font: normal 14px Roboto, sans-serif;
+#             }
 
-    message += "</table></body></html>"
-    return message
+#             .g-table th {
+#             background-color: #DDEFEF;
+#             border: solid 1px #DDEEEE;
+#             color: #336B5B;
+#             min-width: 72px;
+#             padding: 10px;
+#             text-align: left;
+#             text-shadow: 1px 1px 1px #fff;
+#             }
+
+#             .g-table td {
+#             border: solid 1px #DDEEEE;
+#             color: #333;
+#             padding: 10px;
+#             }
+#         </style>
+#     </head>
+#     <body>
+#     <h3>Absence worklog conflicts</h3>
+#     """
+
+#     if len(conflicts) == 0:
+#         message += "<p>No conflicts today!</p></body></html>"
+#         return message
+
+#     message += """
+#     <table class="g-table">
+#     <tr>
+#         <th>Employee</th>
+#         <th>Date</th>
+#         <th>Amount</th>
+#     </tr>
+#     """
+
+#     for email, worklogs in conflicts.items():
+#         for w in worklogs:
+#             message += f"""
+#             <tr>
+#                 <td>{email}</td>
+#                 <td>{w['date']}</td>
+#                 <td>{w['amount']}</td>
+#             </tr>
+#             """
+
+#     message += "</table></body></html>"
+#     return message
 
 
 def sync_timesheets():
@@ -118,7 +131,7 @@ def sync_timesheets():
             continue
 
         jira_account_id = jira.get_account_id(employee["email"])
-        month_start, month_end = get_month_range_yesterday()
+        month_start, month_end = get_dates_range
 
         jira_worklogs = jira.fetch_worklogs(
             jira_account_id, month_start.date().isoformat(), month_end.date().isoformat()
@@ -128,7 +141,6 @@ def sync_timesheets():
         )
 
         _compare_worklogs_with_timesheet(employee["email"], jira_worklogs, calamari_timesheet)
-
 
 def _compare_worklogs_with_timesheet(employee_email: str, jira_worklogs: list, calamari_timesheet: list):
     jira_sum = jira.sum_worklogs(jira_worklogs)

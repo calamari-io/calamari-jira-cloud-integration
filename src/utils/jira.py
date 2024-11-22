@@ -7,6 +7,9 @@ from requests.auth import HTTPBasicAuth
 
 import src.utils.settings as settings
 from src.utils.date import get_month_range
+from src.utils.date import get_dates_range
+
+import urllib.parse
 
 
 def jira_api_call(path: str, method: str = "GET", body: dict|None = None) -> dict:
@@ -21,6 +24,9 @@ def jira_api_call(path: str, method: str = "GET", body: dict|None = None) -> dic
         auth=auth,
         json=body,
     )
+    
+    logging.debug("Jira API response [%s]: %s", res.status_code, res.text)
+    
     res.raise_for_status()
     return res.json()
 
@@ -28,7 +34,7 @@ def jira_api_call(path: str, method: str = "GET", body: dict|None = None) -> dic
 def tempo_api_call(path: str|None = None, method: str = "GET", body: dict|None = None, next_url: str|None = None) -> dict:
     """ Make a call to Tempo API """
 
-    url = f"https://api.tempo.io/core/4/{path}" if next_url is None else next_url
+    url = f"https://api.tempo.io/4/{path}" if next_url is None else next_url
     res = requests.request(
         method, url,
         headers={
@@ -37,6 +43,8 @@ def tempo_api_call(path: str|None = None, method: str = "GET", body: dict|None =
         },
         json=body,
     )
+    logging.debug("Tempo API response [%s]: %s", res.status_code, res.text)
+    
     res.raise_for_status()
     return res.json()
 
@@ -45,15 +53,20 @@ def tempo_api_call(path: str|None = None, method: str = "GET", body: dict|None =
 def get_account_id(email: str) -> str:
     """ Get Jira Account ID from user email address """
 
-    return jira_api_call(f"user/search?query={email}")[0]["accountId"]
+    return jira_api_call(f"user/search?query="+urllib.parse.quote(email))[0]["accountId"]
 
 
 @cache
 def get_user_email(account_id: str) -> str:
     """ Get user email address from Jira Account ID """
 
-    return jira_api_call(f"user/?accountId={account_id}")["emailAddress"]
+    return jira_api_call(f"user?accountId={account_id}")["emailAddress"]
 
+def user_exists(email: str) -> bool:
+    if len(jira_api_call("user/search?query="+urllib.parse.quote(email))) > 0:
+        return True
+    else:
+        return False
 
 def fetch_worklogs(jira_username: str, date_from: str, date_to: str) -> list:
     """ Fetch worklogs for user from Tempo """
@@ -99,7 +112,6 @@ def create_absence_worklog(
     issue_id: str, time: int, day: str, user: str
 ):
     """ Create worklog in Tempo """
-
     worklog_desc = settings.get("jira_absence_worklog_description", "Absence")
     body = {
         "issueId": issue_id,
@@ -112,12 +124,16 @@ def create_absence_worklog(
     }
     return tempo_api_call("worklogs", "POST", body)
 
+def get_jira_issue_id(issueKey):
+    res = jira_api_call("issue/"+issueKey,"GET")
+    logging.debug("Jira API response [%s]", res['id'])
+    return res['id']
 
 def fetch_absences() -> dict:
     """ Fetch absences from Tempo """
 
-    issue = settings.get("jira_absence_issue")
-    month_start, month_end = get_month_range()
+    issue = get_jira_issue_id(settings.get("jira_absence_issue"))
+    month_start, month_end = get_dates_range()
     date_filter = f"from={month_start.date().isoformat()}&to={month_end.date().isoformat()}"
     next_url = None
 

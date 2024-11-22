@@ -2,14 +2,16 @@ import os
 from functools import cache
 
 import boto3
+import logging
 
 ssm = boto3.client("ssm")
 
 @cache
 def get(key: str, default: str|None = None) -> str|None:
+    logging.debug("Tu byłem ")
     if os.getenv("SETTINGS_STORE") == "ssm_parameters":
-        return _get_ssm_parameter(key, default)
-
+        ssm_prefix = os.getenv("SSM_PARAMETERSTORE_PREFIX")
+        return _get_ssm_parameter(ssm_prefix+"/"+key.upper(), default)
     return os.getenv(key.upper(), default)
 
 

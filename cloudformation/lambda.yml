@@ -1,0 +1,293 @@
+Parameters:
+  S3BucketCode:
+    Type: String
+    Description: S3 Bucket that will contain Lambda code.
+  S3BucketCodeKey: 
+    Type: String
+    Default: "build.zip"
+    Description: S3 Bucket prefix that will contain Lambda code for Exporter.
+  LambdaHandlerPath:
+    Description: Path of a Lambda Handler. Leave default if you didn't modify lambda code by yourself.
+    Type: String
+    AllowedPattern: ^.*[^0-9]$
+    ConstraintDescription: Must end with non-numeric character.
+    Default: "src/main.lambda_handler"
+  UseSSMParameterStore:
+    Description: Do you want to use AWS SSM Parameter Store to keep all lambda settings? If False setting will be stored in lambda environment variables
+    Type: String
+    Default: False
+    AllowedValues:
+      - True
+      - False
+  SSMParameterStorePrefix:
+    Description: AWS SSM Parameter store prefix. Default '/calamari-jira-cloud-integration'.
+    Type: String
+    Default: '/calamari-jira-cloud-integration'
+  AbsenceSyncCrontabDefinition:
+    Description: Cron-based schedule definition of absence synchronization. Default is once per day at 8 p.m.
+    Type: String
+    Default: "* 20 * * ? *"
+  CalamariAbsenceIgnoredEmployees:
+    Description: Comma separated list of employees emails that should be ignored during synchronization
+    Type: String
+    Default: "employee@company.com"
+  CalamariAbsenceIgnoredTypes:
+    Description: Comma separated list of ignored absence types ie. Delegacja,Praca zdalna
+    Type: String
+    Default: "Praca zdalna,Delegacja"
+  CalamariApiToken:
+    Description: "calamari.io API token. Check https://help.calamari.io/en/articles/24539-what-is-the-api-key-for-and-where-can-i-find-it for more info."
+    Type: String
+  CalamariApiUrl:
+    Description: "calamari.io API URL. Usually 'https://<yourcompanyname>.calamari.io'. Check https://help.calamari.io/en/articles/24539-what-is-the-api-key-for-and-where-can-i-find-it  for more info."
+    Type: String
+  CalamariTimesheetContractTypes:
+    Description: Comma separated list of contract types. Only those types will be synchronized.
+    Type: String
+    Default: "Umowa o pracę - 26 dni"
+  DaysAfter:
+    Description: How many days after runtime  to take into consideration during synchronization. Default 30, max 90
+    Type: String
+    Default: "30"
+  DaysBefore: 
+    Description: How many days before runtime to take into consideration during synchronization. Default 30, max 90
+    Type: String
+    Default: "30"
+  Debug:
+    Description: Set to 1 to enable script debug logging
+    Type: String
+    Default: "0"
+  JiraAbsenceIssue:
+    Description: Jira issue name to log absences and Tempo work logs, ie. LEAVE-1
+    Type: String
+  JiraAbsenceWorklogDescription:
+    Description: "Tempo absence worklog description, ie. 'Leave/Vacation'"
+    Type: String
+  JiraApiToken:
+    Description: Jira API Token. API token owner needs permission to loga work as others and permission to selected issue
+    Type: String
+  JiraApiUrl:
+    Description: "Jira API URL, ie. 'https://<yourcompanyname>.atlassian.net'"
+    Type: String
+  JiraApiUser:
+    Description: Jira API user email.
+    Type: String
+  TempoApiToken: 
+    Description: Tempo API token
+    Type: String
+
+Conditions: 
+
+  UseSSM: !Equals
+    - !Ref UseSSMParameterStore
+    - True
+
+Resources:
+  Policy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - ssm:GetParametersByPath
+              - ssm:GetParameter
+            Resource:
+              - !Sub "arn:aws:ssm:*:${AWS::AccountId}:parameter${SSMParameterStorePrefix}/*"
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - lambda.amazonaws.com
+                - ssm.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLambdaExecute
+        - !Ref Policy
+
+  Lambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Ref: S3BucketCode
+        S3Key:
+          Ref: S3BucketCodeKey
+      Role:
+        Fn::GetAtt:
+          - Role
+          - Arn
+      Description: calamari.io <-> Jira Cloud Integration
+      Handler: !Ref LambdaHandlerPath
+      MemorySize: 256
+      Runtime: python3.12
+      Timeout: 120
+      Environment:
+        Variables: !If
+          - UseSSM
+          - 
+            SETTINGS_STORE: "ssm_parameters"
+            SSM_PARAMETERSTORE_PREFIX: !Ref SSMParameterStorePrefix
+          -
+            CALAMARI_ABSENCE_IGNORED_EMPLOYEES: !Ref CalamariAbsenceIgnoredEmployees
+            CALAMARI_ABSENCE_IGNORED_TYPES: !Ref CalamariAbsenceIgnoredTypes
+            CALAMARI_API_TOKEN: !Ref CalamariApiToken
+            CALAMARI_API_URL: !Ref CalamariApiUrl
+            CALAMARI_TIMESHEET_CONTRACT_TYPES: !Ref CalamariTimesheetContractTypes
+            DAYS_AFTER: !Ref DaysAfter
+            DAYS_BEFORE: !Ref DaysBefore
+            DEBUG: !Ref Debug
+            JIRA_ABSENCE_ISSUE: !Ref JiraAbsenceIssue
+            JIRA_ABSENCE_WORKLOG_DESCRIPTION: !Ref JiraAbsenceWorklogDescription
+            JIRA_API_TOKEN: !Ref JiraApiToken
+            JIRA_API_URL: !Ref JiraApiUrl
+            JIRA_API_USER: !Ref JiraApiUser
+            TEMPO_API_TOKEN: !Ref TempoApiToken
+    DependsOn:
+      - Role
+
+  EventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: default
+      ScheduleExpression: !Sub "cron(${AbsenceSyncCrontabDefinition})"
+      State: ENABLED
+      Targets:
+        - Id: absences-synchronization
+          Arn: !GetAtt Lambda.Arn
+          Input: |-
+            {
+              "job": "sync-absences"
+            }
+    DependsOn:
+      - Lambda
+
+  LambdaPermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt Lambda.Arn
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt EventRule.Arn
+    DependsOn:
+      - EventRule
+      - Lambda
+
+  SsmTempoApiToken:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/TEMPO_API_TOKEN"
+      Type: String
+      Value: !Ref TempoApiToken
+
+  SsmJiraApiUser:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/JIRA_API_USER"
+      Type: String
+      Value: !Ref JiraApiUser
+
+  SsmJiraApiUrl:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/JIRA_API_URL"
+      Type: String
+      Value: !Ref JiraApiUrl
+
+  SsmJiraApiToken:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/JIRA_API_TOKEN"
+      Type: String
+      Value: !Ref JiraApiToken
+
+  SsmJiraAbsenceWorklogDescription:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/JIRA_ABSENCE_WORKLOG_DESCRIPTION"
+      Type: String
+      Value: !Ref JiraAbsenceWorklogDescription
+
+  SsmJiraAbsenceIssue:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/JIRA_ABSENCE_ISSUE"
+      Type: String
+      Value: !Ref JiraAbsenceIssue
+
+  SsmDebug:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/DEBUG"
+      Type: String
+      Value: !Ref Debug
+
+  SsmDaysBefore:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/DAYS_BEFORE"
+      Type: String
+      Value: !Ref DaysBefore
+
+  SsmDaysAfter:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/DAYS_AFTER"
+      Type: String
+      Value: !Ref DaysAfter
+
+  SsmCalamariTimesheetContractTypes:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/CALAMARI_TIMESHEET_CONTRACT_TYPES"
+      Type: String
+      Value: !Ref CalamariTimesheetContractTypes
+
+  SsmCalamariApiUrl:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/CALAMARI_API_URL"
+      Type: String
+      Value: !Ref CalamariApiUrl
+
+  SsmCalamariApiToken:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/CALAMARI_API_TOKEN"
+      Type: String
+      Value: !Ref CalamariApiToken
+
+  SsmCalamariAbsenceIgnoredTypes:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/CALAMARI_ABSENCE_IGNORED_TYPES"
+      Type: String
+      Value: !Ref CalamariAbsenceIgnoredTypes
+
+  SsmCalamariAbsenceIgnoredEmployees:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/CALAMARI_ABSENCE_IGNORED_EMPLOYEES"
+      Type: String
+      Value: !Ref CalamariAbsenceIgnoredEmployees
