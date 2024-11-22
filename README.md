@@ -27,4 +27,4 @@ Deploy using provided cloudformation template from `cloudformation/lambda.yml`. 
 ## Absence sync (Calamari -> Jira)
 Sync takes approved absences from Calamari and reports them as worklogs in Tempo. Worklogs are created on the issue key taken defined during deployment. During the sync, all absences are taken into account except for configured ignored employees and absence types.
 
-Lambda will detect conflicting worklogs and log then with level WARNING to CloudWatch Logs.
+Lambda will detect conflicting worklogs and log them with level WARNING to CloudWatch Logs.
