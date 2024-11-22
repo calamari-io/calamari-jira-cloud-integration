@@ -1,5 +1,5 @@
 # Calamari - Jira integration
-This integration is syncing absences and timesheets between Jira and Calamari.
+This integration is syncing absences between Calamari and Jira Tempo.
 
 ## Disclaimer
 This repository is a fork of excelent work done in https://github.com/tenesys/calamari-jira-integration by https://tenesys.io/ team.
