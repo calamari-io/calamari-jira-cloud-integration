@@ -131,23 +131,26 @@ def sync_timesheets():
             continue
 
         jira_account_id = jira.get_account_id(employee["email"])
-        month_start, month_end = get_dates_range
+        month_start, month_end = get_dates_range()
 
         jira_worklogs = jira.fetch_worklogs(
             jira_account_id, month_start.date().isoformat(), month_end.date().isoformat()
         )
+        #logging.debug("Jira worklogs: %s", jira_worklogs)
         calamari_timesheet = calamari.fetch_timesheets(
             employee["email"], month_start.date().isoformat(), month_end.date().isoformat()
         )
-
+        #logging.debug("Calamari timesheets: %s", jira_worklogs)
         _compare_worklogs_with_timesheet(employee["email"], jira_worklogs, calamari_timesheet)
 
 def _compare_worklogs_with_timesheet(employee_email: str, jira_worklogs: list, calamari_timesheet: list):
     jira_sum = jira.sum_worklogs(jira_worklogs)
     calamari_sum = calamari.sum_timesheets(calamari_timesheet)
-
+    
+    logging.debug("Jira sum: %s", jira_sum)
+    logging.debug("Calamari sum: %s", calamari_sum)
     for day in jira_sum:
-        if jira_sum[day] == calamari_sum[day]:
+        if jira_sum[day] == float(calamari_sum[day]/3600):
             logging.info("Calamari timesheet for %s is in sync with Jira worklogs on day %s", employee_email, day)
             continue
 
