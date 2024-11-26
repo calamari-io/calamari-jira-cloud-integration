@@ -1,8 +1,9 @@
+Description: CloudFormation tempakte for calamari.io <-> Jira Cloud (Tempo) synchronization.
 Parameters:
-  S3BucketCode:
+  S3Bucket:
     Type: String
     Description: S3 Bucket that will contain Lambda code.
-  S3BucketCodeKey: 
+  S3BucketKey: 
     Type: String
     Default: "build.zip"
     Description: S3 Bucket prefix that will contain Lambda code for Exporter.
@@ -24,7 +25,11 @@ Parameters:
     Type: String
     Default: '/calamari-jira-cloud-integration'
   AbsenceSyncCrontabDefinition:
-    Description: Cron-based schedule definition of absence synchronization. Default is once per day at 8 p.m.
+    Description: Cron-based schedule definition for absence (Calamari to Tempo) synchronization. Default is once per day at 8 p.m. Leave emtpy to disable.
+    Type: String
+    Default: "* 20 * * ? *"
+  TimesheetSyncCrontabDefinition:
+    Description: Cron-based schedule definition for timesheet (Tempo to Calamari) synchronization. Default is once per day at 8 p.m. Leave empty to disable.
     Type: String
     Default: "* 20 * * ? *"
   CalamariAbsenceIgnoredEmployees:
@@ -45,6 +50,24 @@ Parameters:
     Description: Comma separated list of contract types. Only those types will be synchronized.
     Type: String
     Default: "Umowa o pracę - 26 dni"
+  JiraAbsenceIssue:
+    Description: Jira issue name to log absences and Tempo work logs, ie. LEAVE-1
+    Type: String
+  JiraAbsenceWorklogDescription:
+    Description: "Tempo absence worklog description, ie. 'Leave/Vacation'"
+    Type: String
+  JiraApiToken:
+    Description: Jira API Token. API token owner needs permission to log work as others and permission to selected issue
+    Type: String
+  JiraApiUrl:
+    Description: "Jira API URL, ie. 'https://<yourcompanyname>.atlassian.net'"
+    Type: String
+  JiraApiUser:
+    Description: Jira API user email.
+    Type: String
+  TempoApiToken: 
+    Description: Tempo API token
+    Type: String
   DaysAfter:
     Description: How many days after runtime  to take into consideration during synchronization. Default 30, max 90
     Type: String
@@ -57,30 +80,23 @@ Parameters:
     Description: Set to 1 to enable script debug logging
     Type: String
     Default: "0"
-  JiraAbsenceIssue:
-    Description: Jira issue name to log absences and Tempo work logs, ie. LEAVE-1
-    Type: String
-  JiraAbsenceWorklogDescription:
-    Description: "Tempo absence worklog description, ie. 'Leave/Vacation'"
-    Type: String
-  JiraApiToken:
-    Description: Jira API Token. API token owner needs permission to loga work as others and permission to selected issue
-    Type: String
-  JiraApiUrl:
-    Description: "Jira API URL, ie. 'https://<yourcompanyname>.atlassian.net'"
-    Type: String
-  JiraApiUser:
-    Description: Jira API user email.
-    Type: String
-  TempoApiToken: 
-    Description: Tempo API token
-    Type: String
 
 Conditions: 
 
   UseSSM: !Equals
     - !Ref UseSSMParameterStore
     - True
+
+  SyncAbsences: !Not
+    - !Equals
+      - !Ref AbsenceSyncCrontabDefinition
+      - ""
+
+  SyncTimesheets: !Not
+    - !Equals
+      - !Ref TimesheetSyncCrontabDefinition
+      - ""
+
 
 Resources:
   Policy:
@@ -117,9 +133,9 @@ Resources:
     Properties:
       Code:
         S3Bucket:
-          Ref: S3BucketCode
+          Ref: S3Bucket
         S3Key:
-          Ref: S3BucketCodeKey
+          Ref: S3BucketKey
       Role:
         Fn::GetAtt:
           - Role
@@ -153,7 +169,8 @@ Resources:
     DependsOn:
       - Role
 
-  EventRule:
+  AbsencesEventRule:
+    Condition: SyncAbsences
     Type: AWS::Events::Rule
     Properties:
       EventBusName: default
@@ -169,15 +186,45 @@ Resources:
     DependsOn:
       - Lambda
 
-  LambdaPermissions:
+  TimesheetsEventRule:
+    Condition: SyncTimesheets
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: default
+      ScheduleExpression: !Sub "cron(${TimesheetSyncCrontabDefinition})"
+      State: ENABLED
+      Targets:
+        - Id: timesheets-synchronization
+          Arn: !GetAtt Lambda.Arn
+          Input: |-
+            {
+              "job": "sync-timesheets"
+            }
+    DependsOn:
+      - Lambda
+
+  AbsencesLambdaPermissions:
+    Condition: SyncAbsences
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !GetAtt Lambda.Arn
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt EventRule.Arn
+      SourceArn: !GetAtt AbsencesEventRule.Arn
     DependsOn:
-      - EventRule
+      - AbsencesEventRule
+      - Lambda
+
+  TimesheetsLambdaPermissions:
+    Condition: SyncTimesheets
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt Lambda.Arn
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt TimesheetsEventRule.Arn
+    DependsOn:
+      - TimesheetsEventRule
       - Lambda
 
   SsmTempoApiToken:
