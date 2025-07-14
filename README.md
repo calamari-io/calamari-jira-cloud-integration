@@ -43,7 +43,7 @@ Deploy using the cloud formation template provided in `cloudformation/lambda.yml
 | `JiraApiUrl` | Jira API URL | `https://my-company.atlassian.net` | N/A |
 | `JiraApiToken` | Jira API token [https//id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens). | N/A | N/A |
 | `JiraApiUser` | Jira API user (email). It need to have permission to log work as other users and permission to issue selected in `JiraAbsenceIssue` | N/A | N/A |
-| `TempoApiToken` | Tempo API token. Can be generated in Tempo Configuration -> Data Access -> API Integration | N/A | N/A |
+| `TempoApiToken` | Tempo API token. Can be generated in Tempo Configuration -> Data Access -> API Integration. Leave empty for native Jira worklogs. | N/A | N/A |
 | `DaysAfter` | How many days in the past should be take into consideration during the synchronization process. Maximum value is 90. | `14` | `30` | 
 | `DaysBefore` | How many days in the future should be taken into consideration during synchronization process. Maximum value is 90. | `14` | `30` | 
 | `Debug` | Set to 1 to enable Lambda debug logging (CloudWatch Logs) | `1` | `0` |
