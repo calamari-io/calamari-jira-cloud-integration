@@ -11,21 +11,30 @@ from src.utils.date import get_dates_range
 
 import urllib.parse
 
+from datetime import datetime
+import time
+
 
 def jira_api_call(path: str, method: str = "GET", body: dict|None = None) -> dict:
     """ Make a call to Jira API """
 
     url = f"{settings.get('jira_api_url')}/rest/api/3/{path}"
     auth = HTTPBasicAuth(settings.get("jira_api_user"), settings.get("jira_api_token"))
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
 
     res = requests.request(
         method, url,
-        headers={"Accept": "application/json"},
+        headers=headers,
         auth=auth,
         json=body,
     )
     
     logging.debug("Jira API response [%s]: %s", res.status_code, res.text)
+    logging.debug("Request payload: %s",body)
+    logging.debug("Request headers: %s",headers)
     
     res.raise_for_status()
     return res.json()
@@ -48,6 +57,11 @@ def tempo_api_call(path: str|None = None, method: str = "GET", body: dict|None =
     res.raise_for_status()
     return res.json()
 
+@cache
+def get_issue_key(issue_id: str) -> str:
+    """ Get Jira Issue Kye from Issue Id """
+
+    return jira_api_call(f"issue/{issue_id}")["key"]
 
 @cache
 def get_account_id(email: str) -> str:
@@ -68,22 +82,81 @@ def user_exists(email: str) -> bool:
     else:
         return False
 
-def fetch_worklogs(jira_username: str, date_from: str, date_to: str) -> list:
+def fetch_jira_worklogs(employee_email: str, account_id: str, date_from: str, date_to: str) -> list:
+
+    # account_id = get_account_id(employee_email)
+    # Format JQL to filter issues with worklogs by the user
+    jql = f"worklogAuthor = {account_id} AND updated >= {date_from} AND updated <= {date_to}"
+    next_token = None
+    max_results = 50
+    result  = []
+
+    while True:
+        # search_url = f"{jira_base_url}/rest/api/3/search"
+        payload = {
+            "jql": jql,
+            "maxResults": max_results,
+            **({"nextPageToken": next_token} if next_token else {})
+            # "fields": "worklog"
+        }
+
+        # response = requests.get(search_url, headers=headers, params=params, auth=auth)
+        # response.raise_for_status()
+        # data = response.json()
+        data = jira_api_call("search/jql","POST",payload)
+        issues = data.get('issues', [])
+
+        if not issues:
+            break
+
+        for issue in issues:
+            issue_id = issue['id']
+            # worklog_url = f"{jira_base_url}/rest/api/3/issue/{issue_id}/worklog"
+            # wl_response = requests.get(worklog_url, headers=headers, auth=auth)
+            # wl_response.raise_for_status()
+            worklog_data = jira_api_call(f"issue/{issue_id}/worklog")
+
+            for wl in worklog_data.get('worklogs', []):
+                wl_author_id = wl['author']['accountId']
+                started = wl['started']
+                started_date = datetime.strptime(started[:10], '%Y-%m-%d').date()
+                start_dt = datetime.strptime(date_from, '%Y-%m-%d').date()
+                end_dt = datetime.strptime(date_to, '%Y-%m-%d').date()
+                
+                if wl_author_id == account_id and start_dt <= started_date <= end_dt:
+                    result.append({
+                        "timeSpentSeconds": wl['timeSpentSeconds'],
+                        "startDate": wl['started'],
+                        "accountId": wl_author_id,
+                        "email": employee_email,
+                        "issueKey": get_issue_key(issue_id)
+                    })
+
+        next_token = data.get("nextPageToken")
+        is_last = data.get("isLast", True)
+
+        if is_last or not next_token:
+            break
+        time.sleep(0.5)  # throttle to avoid API limits
+
+    return result
+
+
+def fetch_tempo_worklogs(employee_email: str, account_id: str, date_from: str, date_to: str) -> list:
     """ Fetch worklogs for user from Tempo """
 
     next_url = None
     result = []
 
     while True:
-        response = tempo_api_call(f"worklogs/user/{jira_username}?from={date_from}&to={date_to}", next_url=next_url)
+        response = tempo_api_call(f"worklogs/user/{account_id}?from={date_from}&to={date_to}", next_url=next_url)
 
         for record in response["results"]:
             result.append({
                 "timeSpentSeconds": record["timeSpentSeconds"],
                 "startDate": record["startDate"],
                 "accountId": record["author"]["accountId"],
-                #"displayName": record["author"]["displayName"],
-                "email": get_user_email(record["author"]["accountId"]),
+                "email": employee_email,
                 "issueKey": record["issue"]["self"],
             })
 
@@ -108,7 +181,7 @@ def sum_worklogs(worklogs: list) -> dict:
     return result
 
 
-def create_absence_worklog(
+def create_tempo_absence_worklog(
     issue_id: str, time: int, day: str, user: str
 ):
     """ Create worklog in Tempo """
@@ -129,7 +202,7 @@ def get_jira_issue_id(issueKey):
     logging.debug("Jira API response [%s]", res['id'])
     return res['id']
 
-def fetch_absences() -> dict:
+def fetch_tempo_absences() -> dict:
     """ Fetch absences from Tempo """
 
     issue = get_jira_issue_id(settings.get("jira_absence_issue"))

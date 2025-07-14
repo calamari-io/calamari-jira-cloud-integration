@@ -11,7 +11,7 @@ from src.utils.date import get_dates_range
 def sync_absences():
     ignored_employees = settings.get("calamari_absence_ignored_employees").split(",")
     absence_issue_id = jira.get_jira_issue_id(settings.get("jira_absence_issue"))
-    absence_worklogs = jira.fetch_absences()
+    absence_worklogs = jira.fetch_tempo_absences()
     workweeks = calamari.get_workweeks()
 
     conflicts = {}
@@ -49,7 +49,7 @@ def sync_absences():
 
             logging.info("Worklog for absence of %s is missing on %s (%s hours)", employee_email, absence["date"], absence["amount"])
             jira_account_id = jira.get_account_id(employee_email)
-            jira.create_absence_worklog(absence_issue_id, absence["amount"]*3600, absence["date"], jira_account_id)
+            jira.create_tempo_absence_worklog(absence_issue_id, absence["amount"]*3600, absence["date"], jira_account_id)
 
         if len(absence_worklogs[employee_email]) > 0:
             conflicts[employee_email] = absence_worklogs[employee_email]
@@ -124,18 +124,26 @@ def sync_absences():
 
 def sync_timesheets():
     contract_types = settings.get("calamari_timesheet_contract_types").split(",")
+    ignored_employees = settings.get("calamari_absence_ignored_employees").split(",")
 
     for employee in calamari.get_employees():
         if employee["contractType"]["name"] not in contract_types:
-            logging.debug("Skipping %s", employee["email"])
+            logging.debug("Skipping %s contract type: %s ignored by configuration", employee["email"],employee["contractType"]["name"])
+            continue
+        if employee["email"] in ignored_employees:
+            logging.debug("Skipping %s - ignored by configuration", employee["email"])
             continue
 
         jira_account_id = jira.get_account_id(employee["email"])
         month_start, month_end = get_dates_range()
-
-        jira_worklogs = jira.fetch_worklogs(
-            jira_account_id, month_start.date().isoformat(), month_end.date().isoformat()
-        )
+        if settings.get("tempo_api_key") is None:
+            jira_worklogs = jira.fetch_jira_worklogs(
+                employee["email"], jira_account_id, month_start.date().isoformat(), month_end.date().isoformat()
+            )
+        else: 
+            jira_worklogs = jira.fetch_tempo_worklogs(
+                jira_account_id, month_start.date().isoformat(), month_end.date().isoformat()
+            )
         #logging.debug("Jira worklogs: %s", jira_worklogs)
         calamari_timesheet = calamari.fetch_timesheets(
             employee["email"], month_start.date().isoformat(), month_end.date().isoformat()

@@ -14,14 +14,18 @@ def api_call(path: str, body: dict|None = None, no_response: bool = False) -> di
 
     url = f"{settings.get('calamari_api_url')}/api/{path}"
     auth = HTTPBasicAuth("calamari", settings.get("calamari_api_token"))
+    headers={"Accept": "application/json"}
 
     res = requests.request(
         "POST", url,
-        headers={"Accept": "application/json"},
+        headers=headers,
         auth=auth,
         json=body,
     )
     logging.debug("Calamari API response [%s]: %s", res.status_code, res.text)
+    logging.debug("Calamari API payload: %s", body)
+    logging.debug("Calamari API headers: %s", headers)
+
     res.raise_for_status()
     return res.json() if not no_response else None
 
@@ -104,13 +108,13 @@ def delete_timesheet(timesheet_id: int):
 def create_timesheet(person: str, shift_day: str, hours: float):
     """ Create timesheet entry in Calamari """
 
-    shift_start = dt.datetime.fromisoformat(shift_day).replace(hour=8)
+    shift_start = dt.datetime.fromisoformat(shift_day).replace(tzinfo=None).replace(hour=8)
     shift_end = shift_start + dt.timedelta(hours=hours)
 
     body = {
         "person": person,
-        "shiftStart": shift_start.isoformat(),
-        "shiftEnd": shift_end.isoformat(),
+        "shiftStart": shift_start.isoformat(timespec='seconds'),
+        "shiftEnd": shift_end.isoformat(timespec='seconds'),
     }
     api_call("clockin/timesheetentries/v1/create", body)
 
