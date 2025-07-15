@@ -2,7 +2,7 @@
 This integration is syncing absences between Calamari and Jira Tempo.
 
 ## Disclaimer
-This repository is a fork of excellent work done by [Tenesys](https://tenesys.io) team in  [calamari-jira-integration](https://github.com/tenesys/calamari-jira-integration) repository. 
+This repository is a fork of excellent work done by [Tenesys](https://tenesys.io) team in  [calamari-jira-integration](https://github.com/tenesys/calamari-jira-integration) repository, with a few improvements. 
 
 ## Deployment
 
@@ -22,7 +22,7 @@ aws s3 cp build.zip s3://<yourbucketname>/
 ```
 
 ### Deploy using Cloudformation template
-Deploy using the cloud formation template provided in `cloudformation/lambda.yml`. All the configuration is done using CloudFormation parameters and can be keept in SSM Parameter Store or Lambda function environment variables.
+Deploy using the CloudFormation template provided in `cloudformation/lambda.yml`. All configuration is done using CloudFormation parameters and can be stored in the SSM Parameter Store or as Lambda function environment variables.
 
 | Parameter Name | Description | Example | Default value |
 | :------------- | :---------- | :------ | :------------ |
@@ -57,7 +57,9 @@ Synchronization will take approved absences from Calamari and report them as wor
 
 Lambda will detect conflicting work logs and log them with level WARNING to CloudWatch Logs.
 
-## Timesheet sync (Jira -> Calamari)
-Synchronization will takes Tempo work logs and add them as shifts in calamari. They will be added only for employees with selected contract type(s) (`CalamariTimesheetContractTypes`). 
+## Timesheet sync (Jira Worklogs or Tempo Worklogs -> Calamari)
+If a `TempoApiToken` is provided, the synchronization will use Tempo worklogs and add them as shifts in Calamari. Otherwise, it will use native Jira worklogs.
 
-All conflicts will be overwritten by data from Tempo.
+Worklogs will only be added for employees with the selected contract type(s) (`CalamariTimesheetContractTypes`).
+
+All conflicts will be overwritten by data from Jira/Tempo Worklogs.
