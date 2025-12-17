@@ -29,6 +29,35 @@ def api_call(path: str, body: dict|None = None, no_response: bool = False) -> di
     res.raise_for_status()
     return res.json() if not no_response else None
 
+def get_project_type(project_name: str) -> int:
+    """
+    Get (or create) a Calamari project type by name.
+
+    - If a project type with the given name exists, return its ID.
+    - If it does not exist, create it and return the new ID.
+    """
+
+    # 1. Get all project types
+    # Endpoint: POST /clockin/projects/v1/get-projects
+    projects = api_call("clockin/projects/v1/get-projects") or []
+
+    # 2. Look for existing project with this name
+    for project in projects:
+        if project.get("name") == project_name:
+            return project["id"]
+
+    # 3. Not found -> create new project type
+    # Endpoint: POST /clockin/projects/v1/create
+    payload = {
+        "name": project_name,
+        # You can add restrictedToPersons / restrictedToTeams here if needed, e.g.:
+        # "restrictedToPersons": [],
+        # "restrictedToTeams": [],
+    }
+    created = api_call("clockin/projects/v1/create", body=payload)
+
+    # 4. Return new ID
+    return created["id"]
 
 def get_employees() -> list:
     """ Return a list of employees from Calamari """
@@ -105,18 +134,31 @@ def delete_timesheet(timesheet_id: int):
     return api_call("clockin/timesheetentries/v1/delete", {"id": timesheet_id}, no_response=True)
 
 
-def create_timesheet(person: str, shift_day: str, hours: float):
+# calamari.create_timesheet(employee_email, day, project)
+def create_timesheet(person: str, shift_day: str, projects: []):
     """ Create timesheet entry in Calamari """
-
-    shift_start = dt.datetime.fromisoformat(shift_day).replace(tzinfo=None).replace(hour=8)
-    shift_end = shift_start + dt.timedelta(hours=hours)
-
-    body = {
-        "person": person,
-        "shiftStart": shift_start.isoformat(timespec='seconds'),
-        "shiftEnd": shift_end.isoformat(timespec='seconds'),
-    }
-    api_call("clockin/timesheetentries/v1/create", body)
+    # logging.debug("Generate timesheet entry for %s: %s", shift_day, projects)
+    for project in projects:
+        for worklog in projects[project]:       
+            # logging.debug("Worklog %s", worklog)
+            shift_day_str = f"{shift_day}T{worklog["startTime"]}"
+            shift_start = dt.datetime.fromisoformat(shift_day_str).replace(tzinfo=None)
+            shift_end = shift_start+dt.timedelta(seconds=worklog["timeSpentSeconds"])
+            body = {
+                "person": person,
+                "shiftStart": shift_start.isoformat(timespec="seconds"),
+                "shiftEnd": shift_end.isoformat(timespec="seconds"),
+                "projects": [
+                    {
+                        "projectType": get_project_type(project),
+                        "projectStart": shift_start.isoformat(timespec="seconds"),
+                        "projectEnd": shift_end.isoformat(timespec="seconds")
+                    }
+                ],
+                "description":  worklog["description"]
+            }
+            logging.debug("Creating timesheet entry: %s", body)
+            api_call("clockin/timesheetentries/v1/create", body)
 
 
 def get_approved_absences(employee_email: dict) -> dict:

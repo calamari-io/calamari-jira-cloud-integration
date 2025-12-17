@@ -11,7 +11,7 @@ from src.utils.date import get_dates_range
 
 import urllib.parse
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 
 
@@ -62,6 +62,27 @@ def get_issue_key(issue_id: str) -> str:
     """ Get Jira Issue Kye from Issue Id """
 
     return jira_api_call(f"issue/{issue_id}")["key"]
+@cache 
+def get_issue_project_name(issue_id: str | int) -> str:
+    """
+    Get the Jira project name for a given issue (by ID or key).
+
+    :param issue_id: Issue id (numeric) or key (e.g. "ABC-123")
+    :return: Project name (e.g. "My Project Name")
+    :raises KeyError: If the project name cannot be found in the response.
+    """
+    # Jira API accepts both issue ID and issue key in this path
+    issue = jira_api_call(f"issue/{issue_id}")
+
+    try:
+        return issue["fields"]["project"]["name"]
+    except KeyError as exc:
+        # Optional: log the raw response if you like
+        logging.error("Unable to extract project name from issue response: %s", issue)
+        raise KeyError(
+            f"Could not find project name for issue '{issue_id}' "
+            f"(missing fields.project.name in response)"
+        ) from exc
 
 @cache
 def get_account_id(email: str) -> str:
@@ -129,7 +150,8 @@ def fetch_jira_worklogs(employee_email: str, account_id: str, date_from: str, da
                         "startDate": wl['started'],
                         "accountId": wl_author_id,
                         "email": employee_email,
-                        "issueKey": get_issue_key(issue_id)
+                        "issueKey": get_issue_key(issue_id),
+                        "projectName": get_issue_project_name(issue_id)
                     })
 
         next_token = data.get("nextPageToken")
@@ -155,9 +177,11 @@ def fetch_tempo_worklogs(employee_email: str, account_id: str, date_from: str, d
             result.append({
                 "timeSpentSeconds": record["timeSpentSeconds"],
                 "startDate": record["startDate"],
+                "startTime": record["startTime"],
                 "accountId": record["author"]["accountId"],
                 "email": employee_email,
                 "issueKey": record["issue"]["self"],
+                "projectName": get_issue_project_name(record["issue"]["id"]),
             })
 
         if "metadata" not in response or "next" not in response["metadata"]:
@@ -165,21 +189,54 @@ def fetch_tempo_worklogs(employee_email: str, account_id: str, date_from: str, d
 
         next_url = response["metadata"]["next"]
 
+# def _parse_start_datetime(date_str: str, time_str: str) -> datetime:
+#     """Combine 'YYYY-MM-DD' and 'HH:MM:SS' into a datetime."""
+#     return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M:%S")
+
+# def _format_iso(dt_obj: datetime) -> str:
+#     """Format datetime to 'YYYY-MM-DDTHH:MM:SS'."""
+#     return dt_obj.strftime("%Y-%m-%dT%H:%M:%S")
+
 
 def sum_worklogs(worklogs: list) -> dict:
-    """ Sum up the number of hours worked per day """
-
-    result = defaultdict(lambda: 0.0)
-    absence_issue = settings.get("jira_absence_issue")
+    """Sum up the number of hours worked per day."""
+    # logging.debug("Worklogs: %s", worklogs)
+    absence_issue = settings.get("jira_absence_issue")  # uses your existing settings
+    result: dict[str, dict] = {}
 
     for worklog in worklogs:
+        # logging.debug("Worklog: %s", worklog)
         if worklog["issueKey"] == absence_issue:
             continue
 
-        result[worklog["startDate"]] += worklog["timeSpentSeconds"] / 3600
+        date = worklog["startDate"]          # 'YYYY-MM-DD'
+        start_time = worklog["startTime"]    # 'HH:MM:SS'
+        project = worklog["projectName"]
+        seconds = worklog["timeSpentSeconds"]
+        description = worklog["issueKey"]
 
+        if date not in result:
+            result[date] = {
+                "sum": 0,                          # total seconds for that date
+ 
+                "projects": {},
+            }
+
+        # # Add to the total sum for that date (in seconds)
+        result[date]["sum"] += seconds
+
+        # Ensure the project list exists for that date
+        if project not in result[date]["projects"]:
+            result[date]["projects"][project] = []
+
+        # Append this worklog under the project
+        result[date]["projects"][project].append({
+            "startTime": start_time,
+            "timeSpentSeconds": seconds,
+            "description": description
+        })
+    logging.debug("SUM Tempo Worklogs: %s", result)
     return result
-
 
 def create_tempo_absence_worklog(
     issue_id: str, time: int, day: str, user: str

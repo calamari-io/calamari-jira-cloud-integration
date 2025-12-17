@@ -136,12 +136,14 @@ def sync_timesheets():
 
         jira_account_id = jira.get_account_id(employee["email"])
         month_start, month_end = get_dates_range()
-        if settings.get("tempo_api_key") is None:
+        if settings.get("tempo_api_token") is None:
+            logging.debug("Using Jira API for fetching worklogs")
             jira_worklogs = jira.fetch_jira_worklogs(
                 employee["email"], jira_account_id, month_start.date().isoformat(), month_end.date().isoformat()
             )
         else: 
-            jira_worklogs = jira.fetch_tempo_worklogs(
+            logging.debug("Using Tempo API for fetching worklogs")
+            jira_worklogs = jira.fetch_tempo_worklogs(employee["email"],
                 jira_account_id, month_start.date().isoformat(), month_end.date().isoformat()
             )
         #logging.debug("Jira worklogs: %s", jira_worklogs)
@@ -158,7 +160,7 @@ def _compare_worklogs_with_timesheet(employee_email: str, jira_worklogs: list, c
     logging.debug("Jira sum: %s", jira_sum)
     logging.debug("Calamari sum: %s", calamari_sum)
     for day in jira_sum:
-        if jira_sum[day] == float(calamari_sum[day]/3600):
+        if jira_sum[day]["sum"] == float(calamari_sum[day]):
             logging.info("Calamari timesheet for %s is in sync with Jira worklogs on day %s", employee_email, day)
             continue
 
@@ -170,8 +172,11 @@ def _compare_worklogs_with_timesheet(employee_email: str, jira_worklogs: list, c
                     calamari.delete_timesheet(int(entry["id"]))
 
         # create an entry in timesheet
-        logging.info("Creating timesheet entry for %s on day %s (hours %s)", employee_email, day, jira_sum[day])
-        calamari.create_timesheet(employee_email, day, jira_sum[day])
+        logging.info("Creating timesheet entry for %s on day %s", employee_email, day)
+        projects = jira_sum[day]["projects"]
+        logging.debug("Projects: %s", projects)
+        # for project in projects:
+        calamari.create_timesheet(employee_email, day, projects)
 
     for day in [d for d in calamari_sum if d not in jira_sum]:
         for worklog in calamari_timesheet:
