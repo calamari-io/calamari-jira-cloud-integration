@@ -125,6 +125,7 @@ def fetch_jira_worklogs(employee_email: str, account_id: str, date_from: str, da
         # response.raise_for_status()
         # data = response.json()
         data = jira_api_call("search/jql","POST",payload)
+        logging.debug("Jira search response: %s", data)
         issues = data.get('issues', [])
 
         if not issues:
@@ -136,18 +137,24 @@ def fetch_jira_worklogs(employee_email: str, account_id: str, date_from: str, da
             # wl_response = requests.get(worklog_url, headers=headers, auth=auth)
             # wl_response.raise_for_status()
             worklog_data = jira_api_call(f"issue/{issue_id}/worklog")
-
+            logging.debug("Worklog data: %s", worklog_data)
+            
             for wl in worklog_data.get('worklogs', []):
                 wl_author_id = wl['author']['accountId']
-                started = wl['started']
-                started_date = datetime.strptime(started[:10], '%Y-%m-%d').date()
+    
+                dt = datetime.strptime(wl['started'], "%Y-%m-%dT%H:%M:%S.%f%z")
+                startDate = dt.strftime("%Y-%m-%d")     # "2025-12-18"
+                startTime = dt.strftime("%H:%M:%S")     # "13:44:18"
+                
+                started_date = dt.date()
                 start_dt = datetime.strptime(date_from, '%Y-%m-%d').date()
                 end_dt = datetime.strptime(date_to, '%Y-%m-%d').date()
                 
                 if wl_author_id == account_id and start_dt <= started_date <= end_dt:
                     result.append({
                         "timeSpentSeconds": wl['timeSpentSeconds'],
-                        "startDate": wl['started'],
+                        "startDate": startDate,
+                        "startTime": startTime,
                         "accountId": wl_author_id,
                         "email": employee_email,
                         "issueKey": get_issue_key(issue_id),
@@ -161,6 +168,7 @@ def fetch_jira_worklogs(employee_email: str, account_id: str, date_from: str, da
             break
         time.sleep(0.5)  # throttle to avoid API limits
 
+    logging.debug("Jira worklogs DTO: %s", result)
     return result
 
 
@@ -172,7 +180,7 @@ def fetch_tempo_worklogs(employee_email: str, account_id: str, date_from: str, d
 
     while True:
         response = tempo_api_call(f"worklogs/user/{account_id}?from={date_from}&to={date_to}", next_url=next_url)
-
+        
         for record in response["results"]:
             result.append({
                 "timeSpentSeconds": record["timeSpentSeconds"],
@@ -180,7 +188,7 @@ def fetch_tempo_worklogs(employee_email: str, account_id: str, date_from: str, d
                 "startTime": record["startTime"],
                 "accountId": record["author"]["accountId"],
                 "email": employee_email,
-                "issueKey": record["issue"]["self"],
+                "issueKey": get_issue_key(record["issue"]["id"]),
                 "projectName": get_issue_project_name(record["issue"]["id"]),
             })
 
@@ -213,7 +221,7 @@ def sum_worklogs(worklogs: list) -> dict:
         start_time = worklog["startTime"]    # 'HH:MM:SS'
         project = worklog["projectName"]
         seconds = worklog["timeSpentSeconds"]
-        description = worklog["issueKey"]
+        description = f"{settings.get('jira_api_url')}/browse/{worklog["issueKey"]}"
 
         if date not in result:
             result[date] = {

@@ -136,7 +136,7 @@ def sync_timesheets():
 
         jira_account_id = jira.get_account_id(employee["email"])
         month_start, month_end = get_dates_range()
-        if settings.get("tempo_api_token") is None:
+        if settings.get("tempo_api_token") is None or settings.get("tempo_api_token") == "":
             logging.debug("Using Jira API for fetching worklogs")
             jira_worklogs = jira.fetch_jira_worklogs(
                 employee["email"], jira_account_id, month_start.date().isoformat(), month_end.date().isoformat()
