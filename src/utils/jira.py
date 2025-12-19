@@ -127,6 +127,7 @@ def fetch_jira_worklogs(employee_email: str, account_id: str, date_from: str, da
         data = jira_api_call("search/jql","POST",payload)
         logging.debug("Jira search response: %s", data)
         issues = data.get('issues', [])
+        selected_projects = settings.get("selected_projects").split(",")
 
         if not issues:
             break
@@ -151,15 +152,29 @@ def fetch_jira_worklogs(employee_email: str, account_id: str, date_from: str, da
                 end_dt = datetime.strptime(date_to, '%Y-%m-%d').date()
                 
                 if wl_author_id == account_id and start_dt <= started_date <= end_dt:
-                    result.append({
-                        "timeSpentSeconds": wl['timeSpentSeconds'],
-                        "startDate": startDate,
-                        "startTime": startTime,
-                        "accountId": wl_author_id,
-                        "email": employee_email,
-                        "issueKey": get_issue_key(issue_id),
-                        "projectName": get_issue_project_name(issue_id)
-                    })
+                    projectName = get_issue_project_name(issue_id)
+                    if selected_projects is None or selected_projects == "":
+                        result.append({
+                            "timeSpentSeconds": wl['timeSpentSeconds'],
+                            "startDate": startDate,
+                            "startTime": startTime,
+                            "accountId": wl_author_id,
+                            "email": employee_email,
+                            "issueKey": get_issue_key(issue_id),
+                            "projectName": projectName
+                        })
+                    elif projectName in selected_projects:
+                        result.append({
+                            "timeSpentSeconds": wl['timeSpentSeconds'],
+                            "startDate": startDate,
+                            "startTime": startTime,
+                            "accountId": wl_author_id,
+                            "email": employee_email,
+                            "issueKey": get_issue_key(issue_id),
+                            "projectName": projectName
+                        })
+                    else:
+                        logging.info("Project %s not in selected projects list. Skipping.", projectName)
 
         next_token = data.get("nextPageToken")
         is_last = data.get("isLast", True)
@@ -177,33 +192,39 @@ def fetch_tempo_worklogs(employee_email: str, account_id: str, date_from: str, d
 
     next_url = None
     result = []
+    selected_projects = settings.get("selected_projects").split(",")
 
     while True:
         response = tempo_api_call(f"worklogs/user/{account_id}?from={date_from}&to={date_to}", next_url=next_url)
         
         for record in response["results"]:
-            result.append({
-                "timeSpentSeconds": record["timeSpentSeconds"],
-                "startDate": record["startDate"],
-                "startTime": record["startTime"],
-                "accountId": record["author"]["accountId"],
-                "email": employee_email,
-                "issueKey": get_issue_key(record["issue"]["id"]),
-                "projectName": get_issue_project_name(record["issue"]["id"]),
-            })
-
+            projectName = get_issue_project_name(record["issue"]["id"])
+            if selected_projects is None or selected_projects == "":
+                result.append({
+                    "timeSpentSeconds": record["timeSpentSeconds"],
+                    "startDate": record["startDate"],
+                    "startTime": record["startTime"],
+                    "accountId": record["author"]["accountId"],
+                    "email": employee_email,
+                    "issueKey": get_issue_key(record["issue"]["id"]),
+                    "projectName": projectName
+                })
+            elif projectName in selected_projects:
+                result.append({
+                    "timeSpentSeconds": record["timeSpentSeconds"],
+                    "startDate": record["startDate"],
+                    "startTime": record["startTime"],
+                    "accountId": record["author"]["accountId"],
+                    "email": employee_email,
+                    "issueKey": get_issue_key(record["issue"]["id"]),
+                    "projectName": projectName
+                })
+            else:
+                logging.info("Project %s not in selected projects list. Skipping.", projectName)
         if "metadata" not in response or "next" not in response["metadata"]:
             return result
 
         next_url = response["metadata"]["next"]
-
-# def _parse_start_datetime(date_str: str, time_str: str) -> datetime:
-#     """Combine 'YYYY-MM-DD' and 'HH:MM:SS' into a datetime."""
-#     return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M:%S")
-
-# def _format_iso(dt_obj: datetime) -> str:
-#     """Format datetime to 'YYYY-MM-DDTHH:MM:SS'."""
-#     return dt_obj.strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def sum_worklogs(worklogs: list) -> dict:

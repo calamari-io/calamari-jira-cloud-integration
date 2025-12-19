@@ -50,6 +50,10 @@ Parameters:
     Description: Comma separated list of contract types. Only those types will be synchronized.
     Type: String
     Default: "Umowa o pracę - 26 dni"
+  JiraSelectedProjects:
+    Description: Comma-separated list of Jira projects. Only worklogs for those projects will be synced. If you want to sync all projects, just leave it empty.
+    Type: String
+    Default: ""
   JiraAbsenceIssue:
     Description: Jira issue name to log absences and Tempo work logs, ie. LEAVE-1
     Type: String
@@ -166,6 +170,7 @@ Resources:
             JIRA_API_URL: !Ref JiraApiUrl
             JIRA_API_USER: !Ref JiraApiUser
             TEMPO_API_TOKEN: !Ref TempoApiToken
+            SELECTED_PROJECTS: !Ref JiraSelectedProjects
     DependsOn:
       - Role
 
@@ -274,6 +279,14 @@ Resources:
       Name: !Sub "${SSMParameterStorePrefix}/JIRA_ABSENCE_ISSUE"
       Type: String
       Value: !Ref JiraAbsenceIssue
+
+  SsmJiraSelectedProjects:
+    Condition: UseSSM
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${SSMParameterStorePrefix}/SELECTED_PROJECTS"
+      Type: String
+      Value: !Ref JiraSelectedProjects
 
   SsmDebug:
     Condition: UseSSM
