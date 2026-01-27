@@ -63,3 +63,15 @@ If a `TempoApiToken` is provided, the synchronization will use Tempo worklogs an
 Worklogs will only be added for employees with the selected contract type(s) (`CalamariTimesheetContractTypes`).
 
 All conflicts will be overwritten by data from Jira/Tempo Worklogs.
+
+## How it works
+
+### Visibility of users’ email addresses
+
+To correctly map user accounts between Jira and Calamari, email address visibility must be enabled in Jira in both places:
+
+* System → General configuration → Options → User email visibility → Show
+
+* User profile → Profile and visibility → Contact → Anyone
+
+This ensures that email addresses are visible and can be used to match user accounts between Jira and Calamari.
