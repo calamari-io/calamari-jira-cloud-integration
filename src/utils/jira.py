@@ -214,7 +214,6 @@ def fetch_tempo_absences(month_start=None, month_end=None) -> dict:
     issue = get_jira_issue_id(settings.get("jira_absence_issue"))
     if month_start is None or month_end is None:
         month_start, month_end = get_dates_range()
-    month_start, month_end = get_dates_range()
     date_filter = f"from={month_start.date().isoformat()}&to={month_end.date().isoformat()}"
     next_url = None
 

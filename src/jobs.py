@@ -12,7 +12,7 @@ def sync_absences():
     ignored_employees = settings.get("calamari_absence_ignored_employees").split(",")
     absence_issue_id = jira.get_jira_issue_id(settings.get("jira_absence_issue"))
     month_start, month_end = get_dates_range()
-    absence_worklogs = jira.fetch_tempo_absences(month_start, month_end)
+    #absence_worklogs = jira.fetch_tempo_absences(month_start, month_end)
     workweeks = calamari.get_workweeks()
 
     conflicts = {}
@@ -36,20 +36,26 @@ def sync_absences():
             workweek
         )
 
+        # absence can span before or after synchronization period
+        for absence in employee_absences:
+     
+            absence_date = datetime.strptime(absence["date"], "%Y-%m-%d")
+            if absence_date < month_start:
+                logging.debug("Absence date %s is < month_start (%s)", absence["date"], month_start.strftime("%Y-%m-%d"))
+                month_start = absence_date
+            if absence_date > month_end:
+                logging.debug("Absence date %s is > month_end (%s)", absence["date"], month_start.strftime("%Y-%m-%d"))
+                month_end = absence_date
+                
+        logging.debug("Fetching worklogs again for %s - %s", month_start.strftime("%Y-%m-%d"), month_end.strftime("%Y-%m-%d"))
+        absence_worklogs = jira.fetch_tempo_absences(month_start, month_end)
+
         if employee_absences == absence_worklogs[employee_email]:
             logging.info("No conflicts for user %s", employee_email)
             continue
 
         logging.debug("%s %s", employee_email, employee_absences)
         for absence in employee_absences:
-            # absence can span before or after synchronization period
-            absence_date = datetime.strptime(absence["date"], "%Y-%m-%d")
-            if absence_date < month_start:
-                logging.debug("Absence date %s is < month_start (%s)", absence["date"], month_start.strftime("%Y-%m-%d"))
-                absence_worklogs = jira.fetch_tempo_absences(absence_date, month_end)
-            if absence_date > month_end:
-                logging.debug("Absence date %s is > month_end (%s)", absence["date"], month_start.strftime("%Y-%m-%d"))
-                absence_worklogs = jira.fetch_tempo_absences(month_start,absence_date)
 
             if absence in absence_worklogs[employee_email]:
                 logging.debug("Worklog for absence of %s exists on %s", employee_email, absence["date"])
