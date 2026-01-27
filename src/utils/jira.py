@@ -85,17 +85,24 @@ def get_issue_project_name(issue_id: str | int) -> str:
         ) from exc
 
 @cache
-def get_account_id(email: str) -> str:
+def get_account_id(email: str):
     """ Get Jira Account ID from user email address """
+    users = jira_api_call(f"user/search?query=" + urllib.parse.quote(email))
 
-    return jira_api_call(f"user/search?query="+urllib.parse.quote(email))[0]["accountId"]
+    if not users:
+        logging.warning("User with email %s not found in Jira.", email)
+        return None
+
+    return users[0]["accountId"]
 
 
 @cache
 def get_user_email(account_id: str) -> str:
     """ Get user email address from Jira Account ID """
+    user = jira_api_call(f"user?accountId={account_id}")
+    logging.debug("Search jira by account id returned: %s", user)
 
-    return jira_api_call(f"user?accountId={account_id}")["emailAddress"]
+    return user["emailAddress"]
 
 def user_exists(email: str) -> bool:
     if len(jira_api_call("user/search?query="+urllib.parse.quote(email))) > 0:
@@ -195,6 +202,10 @@ def fetch_tempo_worklogs(employee_email: str, account_id: str, date_from: str, d
     selected_projects = settings.get("selected_projects").split(",")
 
     while True:
+        if account_id is None:
+            logging.warning("Account ID is None for email %s. Skipping Tempo worklog fetch.", employee_email)
+            return result
+
         response = tempo_api_call(f"worklogs/user/{account_id}?from={date_from}&to={date_to}", next_url=next_url)
         
         for record in response["results"]:
@@ -288,11 +299,12 @@ def get_jira_issue_id(issueKey):
     logging.debug("Jira API response [%s]", res['id'])
     return res['id']
 
-def fetch_tempo_absences() -> dict:
+def fetch_tempo_absences(month_start=None, month_end=None) -> dict: # to
     """ Fetch absences from Tempo """
 
     issue = get_jira_issue_id(settings.get("jira_absence_issue"))
-    month_start, month_end = get_dates_range()
+    if month_start is None or month_end is None:
+        month_start, month_end = get_dates_range()
     date_filter = f"from={month_start.date().isoformat()}&to={month_end.date().isoformat()}"
     next_url = None
 
