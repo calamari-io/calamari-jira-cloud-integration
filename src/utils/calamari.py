@@ -122,10 +122,10 @@ def create_timesheet(person: str, shift_day: str, hours: float):
 def get_approved_absences(employee_email: dict) -> dict:
     """ Fetch all approved absences for user """
 
-    month_start, month_end = get_dates_range()
+    period_start, period_end = get_dates_range()
     body = {
-        "from": month_start.date().isoformat(),
-        "to": month_end.date().isoformat(),
+        "from": period_start.date().isoformat(),
+        "to": period_end.date().isoformat(),
         "employees": [employee_email],
         "absenceStatuses": ["APPROVED"],
     }
@@ -133,25 +133,25 @@ def get_approved_absences(employee_email: dict) -> dict:
     return api_call("leave/request/v1/find-advanced", body)
 
 
-def get_holidays(employee_email: str) -> list:
+def get_holidays(employee_email: str, period_start, period_end) -> list:
     """ Fetch holidays from Calamari """
 
-    month_start, month_end = get_dates_range()
+    #period_start, period_end = get_dates_range()
     body = {
         "employee": employee_email,
-        "from": month_start.strftime("%Y-%m-%d"),
-        "to": month_end.strftime("%Y-%m-%d")
+        "from": period_start.strftime("%Y-%m-%d"),
+        "to": period_end.strftime("%Y-%m-%d")
     }
 
     res = api_call("holiday/v1/find", body)
     return [i["start"] for i in res]
 
 
-def filter_absences(employee_email: str, absences: dict, workweek: list) -> list:
+def filter_absences(employee_email: str, absences: dict, workweek: list, period_start, period_end) -> list:
     """ Filter absences from Calamari based on mail, type and holidays """
 
     ignored_types = settings.get("calamari_absence_ignored_types").split(",")
-    holidays = get_holidays(employee_email)
+    holidays = get_holidays(employee_email, period_start, period_end)
     result = []
     
     for absence in absences:

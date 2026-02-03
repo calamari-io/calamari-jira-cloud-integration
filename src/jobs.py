@@ -11,8 +11,8 @@ from datetime import datetime
 def sync_absences():
     ignored_employees = settings.get("calamari_absence_ignored_employees").split(",")
     absence_issue_id = jira.get_jira_issue_id(settings.get("jira_absence_issue"))
-    month_start, month_end = get_dates_range()
-    #absence_worklogs = jira.fetch_tempo_absences(month_start, month_end)
+    period_start, period_end = get_dates_range()
+    #absence_worklogs = jira.fetch_tempo_absences(period_start, period_end)
     workweeks = calamari.get_workweeks()
 
     conflicts = {}
@@ -30,26 +30,33 @@ def sync_absences():
                 conflicts[employee_email] = absence_worklogs[employee_email]
             continue
         workweek=calamari.get_workweek(workweeks, employee_workweek_id)
-        employee_absences = calamari.filter_absences(
-            employee_email,
-            calamari.get_approved_absences(employee_email),
-            workweek
-        )
+        approved_absences = calamari.get_approved_absences(employee_email)
+        logging.debug("Approved absences: %s", approved_absences)
 
         # absence can span before or after synchronization period
-        for absence in employee_absences:
+        for absence in approved_absences:
      
-            absence_date = datetime.strptime(absence["date"], "%Y-%m-%d")
-            if absence_date < month_start:
-                logging.debug("Absence date %s is < month_start (%s)", absence["date"], month_start.strftime("%Y-%m-%d"))
-                month_start = absence_date
-            if absence_date > month_end:
-                logging.debug("Absence date %s is > month_end (%s)", absence["date"], month_start.strftime("%Y-%m-%d"))
-                month_end = absence_date
+            absence_start = datetime.strptime(absence["from"], "%Y-%m-%d")
+            absence_end = datetime.strptime(absence["to"], "%Y-%m-%d")
+            if absence_start < period_start:
+                logging.debug("Absence date %s is < period_start (%s)", absence_start, period_start.strftime("%Y-%m-%d"))
+                period_start = absence_start
+            if absence_end > period_end:
+                logging.debug("Absence date %s is > period_end (%s)", absence_end, period_start.strftime("%Y-%m-%d"))
+                period_end = absence_end
                 
-        logging.debug("Fetching worklogs again for %s - %s", month_start.strftime("%Y-%m-%d"), month_end.strftime("%Y-%m-%d"))
-        absence_worklogs = jira.fetch_tempo_absences(month_start, month_end)
+        logging.debug("Fetching worklogs for %s - %s", period_start.strftime("%Y-%m-%d"), period_end.strftime("%Y-%m-%d"))
+        absence_worklogs = jira.fetch_tempo_absences(period_start, period_end)
 
+        employee_absences = calamari.filter_absences(
+            employee_email,
+            approved_absences,
+            workweek,
+            period_start,
+            period_end
+        )
+
+        
         if employee_absences == absence_worklogs[employee_email]:
             logging.info("No conflicts for user %s", employee_email)
             continue
@@ -151,18 +158,18 @@ def sync_timesheets():
             continue
 
         jira_account_id = jira.get_account_id(employee["email"])
-        month_start, month_end = get_dates_range()
+        period_start, period_end = get_dates_range()
         if settings.get("tempo_api_key") is None:
             jira_worklogs = jira.fetch_jira_worklogs(
-                employee["email"], jira_account_id, month_start.date().isoformat(), month_end.date().isoformat()
+                employee["email"], jira_account_id, period_start.date().isoformat(), period_end.date().isoformat()
             )
         else: 
             jira_worklogs = jira.fetch_tempo_worklogs(
-                jira_account_id, month_start.date().isoformat(), month_end.date().isoformat()
+                jira_account_id, period_start.date().isoformat(), period_end.date().isoformat()
             )
         #logging.debug("Jira worklogs: %s", jira_worklogs)
         calamari_timesheet = calamari.fetch_timesheets(
-            employee["email"], month_start.date().isoformat(), month_end.date().isoformat()
+            employee["email"], period_start.date().isoformat(), period_end.date().isoformat()
         )
         #logging.debug("Calamari timesheets: %s", jira_worklogs)
         _compare_worklogs_with_timesheet(employee["email"], jira_worklogs, calamari_timesheet)
