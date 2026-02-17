@@ -56,7 +56,8 @@ def sync_absences():
             period_end
         )
 
-        
+        logging.debug("COMPARE Employee absences: %s", employee_absences)
+        logging.debug("COMPARE Absence worklogs: %s", absence_worklogs)
         if employee_absences == absence_worklogs[employee_email]:
             logging.info("No conflicts for user %s", employee_email)
             continue
