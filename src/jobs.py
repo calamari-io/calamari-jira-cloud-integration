@@ -11,12 +11,11 @@ from datetime import datetime
 def sync_absences():
     ignored_employees = settings.get("calamari_absence_ignored_employees").split(",")
     absence_issue_id = jira.get_jira_issue_id(settings.get("jira_absence_issue"))
-    period_start, period_end = get_dates_range()
-    #absence_worklogs = jira.fetch_tempo_absences(period_start, period_end)
     workweeks = calamari.get_workweeks()
 
     conflicts = {}
     for employee in calamari.get_employees():
+        period_start, period_end = get_dates_range()
         employee_email = employee["email"]
         employee_workweek_id = employee['workingWeek']['id']
         
